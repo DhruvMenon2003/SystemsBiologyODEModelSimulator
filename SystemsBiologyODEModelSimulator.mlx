@@ -1,0 +1,189 @@
+function interactiveODEsimulation()
+    % Create UI figure with keyboard and mouse callbacks
+    f = uifigure('Name', 'Interactive ODE Simulation', 'Color', 'w', ...
+                 'Position', [1000 1512 1500 1500], ...
+                 'KeyPressFcn', @keyPressCallback, ...
+                 'WindowButtonDownFcn', @windowButtonDownCallback);
+    % Optimized Parameters for Godo User Interface
+    sliderWidth = 320;
+    startY = 1350;
+    gapY = 60;
+    % Range of parameter values has been selected depending on whether
+    % there is a positive/negative feedback loop. If neither positive nor negative feedback, then parameter value can be both positive and negative..
+    labels = {'α₁', 'g₁₁', 'g₁₂', 'h₁', 'g₂₁', 'h₂'};
+    defaultValues = [1, 0.4, -0.15, 0.2, 1, 0.2];
+    mins = [0, 0, -1, -1, 0, -1]; 
+    maxs = [2, 2, 0, 2, 2, 2];
+    
+    % Create axes for plotting
+    ax1 = uiaxes(f, 'Position', [10, 10, 600, 300], 'FontSize', 12, 'LineWidth', 1.2, 'Box', 'on');
+    ax2 = uiaxes(f, 'Position', [750, 10, 600, 300], 'FontSize', 12, 'LineWidth', 1.2, 'Box', 'on');
+    
+    % Create active parameter display
+    activeLabel = uilabel(f, 'Position', [600, startY + 70, 300, 22], ...
+        'Text', 'Active Parameter: None (click a slider)', ...
+        'FontSize', 12, 'FontWeight', 'bold');
+    
+    % Create sliders and value labels
+    sliders = gobjects(1, 6);
+    valLabels = gobjects(1, 6);
+    
+    for i = 1:6
+        ypos = startY - (i-1)*gapY;
+        uilabel(f, 'Position', [50, ypos, 50, 22], 'Text', labels{i}, ...
+                'FontWeight', 'bold', 'FontSize', 14, 'HorizontalAlignment', 'right');
+
+        sliders(i) = uislider(f, 'Position', [120, ypos+5, sliderWidth, 3], ...
+                              'Limits', [mins(i), maxs(i)], ...
+                              'Value', defaultValues(i), ...
+                              'MajorTicks', linspace(mins(i), maxs(i), 5), ...
+                              'MinorTicks', [], ...
+                              'Tag', num2str(i)); % Store index in tag
+
+        valLabels(i) = uilabel(f, 'Position', [460, ypos, 100, 22], ...
+                               'Text', sprintf('%.2f', defaultValues(i)), ...
+                               'FontSize', 12, 'HorizontalAlignment', 'left');
+    end
+    
+    % Store UI components in figure
+    f.UserData = struct(...
+        'sliders', sliders, ...
+        'valLabels', valLabels, ...
+        'labels', {labels}, ...
+        'activeSlider', [], ...
+        'stepSize', 0.01, ...
+        'ax1', ax1, ...
+        'ax2', ax2, ...
+        'activeLabel', activeLabel...
+        );
+    
+    % Set slider callbacks
+    for i = 1:6
+        sliders(i).ValueChangedFcn = @(sld,evt) updatePlots(f);
+        sliders(i).ValueChangingFcn = @(sld,evt) set(valLabels(i), 'Text', sprintf('%.2f', evt.Value));
+    end
+    
+    % Set step size callback
+   % stepEdit.ValueChangedFcn = @(src,evt) updateStepSize(f, src.Value);
+    
+    % Initial plot
+    updatePlots(f);
+end
+
+function updatePlots(fig)
+    % Retrieve data from figure
+    data = fig.UserData;
+    sliders = data.sliders;
+    
+    % Get parameter values
+    params = arrayfun(@(x) x.Value, sliders);
+    alpha1 = params(1);
+    g11    = params(2);
+    g12    = params(3);
+    h1     = params(4);
+    g21    = params(5);
+    h2     = params(6);
+    
+    % Time span and initial conditions
+    tspan = linspace(0, 200, 5000);
+    X0 = [1; 1];
+    
+    % Solve ODE
+    [t, sol] = ode45(@(t, X) derivatives(t, X, alpha1, g11, g12, h1, g21, h2), tspan, X0);
+    % Concentrations of Gene1 and Gene2 must be >= 0
+    sol(:,1)=sol(:,1).*(sol(:,1) > 0);
+    sol(:,2)=sol(:,2).*(sol(:,2) > 0);
+    % Plot settings
+    lw = 2.2;
+    colors = {'blue', 'red'};
+    fontSize = 14;
+    
+    % Subplot 1: Time trajectories
+    cla(data.ax1);
+    hold(data.ax1, 'on');
+    plot(data.ax1, t, sol(:,1), '-', 'Color', colors{1}, 'LineWidth', lw, 'DisplayName', 'X_1');
+    plot(data.ax1, t, sol(:,2), '-', 'Color', colors{2}, 'LineWidth', lw, 'DisplayName', 'X_2');
+    xlabel(data.ax1, 'Time', 'FontSize', fontSize, 'FontWeight', 'bold');
+    ylabel(data.ax1, 'Concentration', 'FontSize', fontSize, 'FontWeight', 'bold');
+    title(data.ax1, 'Time Trajectories of X_1 and X_2', 'FontSize', fontSize+2, 'FontWeight', 'bold');
+    legend(data.ax1, 'FontSize', 12, 'Location', 'best');
+    grid(data.ax1, 'on');
+    set(data.ax1, 'FontSize', 12, 'LineWidth', 1.2);
+    axis(data.ax1, 'tight');
+    % Subplot 2: Phase portrait
+    cla(data.ax2);
+    hold(data.ax2, 'on');
+    plot(data.ax2, sol(:,1), sol(:,2), '-', 'Color', [0.1, 0.1, 0.1], 'LineWidth', lw, 'DisplayName', 'Trajectory');
+    scatter(data.ax2, sol(1,1), sol(1,2), 50, 'g', 'filled', 'DisplayName', 'Start');
+    scatter(data.ax2, sol(end,1), sol(end,2), 50, 'm', 'filled', 'DisplayName', 'End');
+    xlabel(data.ax2, 'X_1', 'FontSize', fontSize, 'FontWeight', 'bold');
+    ylabel(data.ax2, 'X_2', 'FontSize', fontSize, 'FontWeight', 'bold');
+    title(data.ax2, 'Phase Portrait: X_1 vs X_2', 'FontSize', fontSize+2, 'FontWeight', 'bold');
+    legend(data.ax2, 'FontSize', 12, 'Location', 'best');
+    grid(data.ax2, 'on');
+    set(data.ax2, 'FontSize', 12, 'LineWidth', 1.2);
+    axis(data.ax2, 'tight');
+
+end
+
+function dXdt = derivatives(~, X, alpha1, g11, g12, h1, g21, h2)
+    X1 = X(1);
+    X2 = X(2);
+    dX1dt = alpha1 * X1^g11 * X2^g12 - X1^h1;
+    dX2dt = X1^g21 - X2^h2;
+    dXdt = [dX1dt; dX2dt];
+end
+
+function windowButtonDownCallback(src, ~)
+    % Get clicked object
+    clickedObj = src.CurrentObject;
+    
+    % Check if slider was clicked
+    if isa(clickedObj, 'matlab.ui.control.Slider')
+        data = src.UserData;
+        
+        % Get slider index from tag
+        idx = str2double(clickedObj.Tag);
+        
+        % Update active slider
+        data.activeSlider = idx;
+        data.activeLabel.Text = ['Active Parameter: ', data.labels{idx}];
+        
+        % Store updated data
+        src.UserData = data;
+    end
+end
+
+function keyPressCallback(src, event)
+    data = src.UserData;
+    
+    % Only respond if a slider is active
+    if isempty(data.activeSlider) || data.activeSlider == 0
+        return;
+    end
+    
+    % Get active slider
+    activeSlider = data.sliders(data.activeSlider);
+    step = data.stepSize;
+    
+    % Adjust value based on keypress
+     switch event.Key
+        case {'uparrow', 'rightarrow'}
+            newValue = activeSlider.Value + step;
+        case {'downarrow', 'leftarrow'}
+            newValue = activeSlider.Value - step;
+        otherwise
+            return
+      end
+    
+    % Apply constraints
+    newValue = max(activeSlider.Limits(1), min(activeSlider.Limits(2), newValue));
+    
+    % Update slider and value label
+    activeSlider.Value = newValue;
+    data.valLabels(data.activeSlider).Text = sprintf('%.2f', newValue);
+    
+    % Update plot
+    updatePlots(src);
+end
+
